@@ -1,0 +1,27 @@
+# Environment variables and local secrets
+.env
+.env.*
+!.env.example
+
+# Compiled binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Build and coverage outputs
+/bin/
+/build/
+/coverage/
+
+# Go workspace file (local-only, if used)
+go.work
+
+# Editor and operating-system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
