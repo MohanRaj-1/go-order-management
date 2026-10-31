@@ -1,6 +1,7 @@
 package config
 
 import (
+	"log/slog"
 	"os"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ func TestLoadDefaults(t *testing.T) {
 		"HTTP_WRITE_TIMEOUT",
 		"HTTP_IDLE_TIMEOUT",
 		"HTTP_SHUTDOWN_TIMEOUT",
+		"LOG_LEVEL",
 	}
 
 	// Save the original values and remove the variables for this test.
@@ -55,6 +57,9 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.HTTPShutdownTimeout != 10*time.Second {
 		t.Errorf("expected shutdown timeout 10s, got %s", cfg.HTTPShutdownTimeout)
+	}
+	if cfg.LogLevel != slog.LevelInfo {
+		t.Errorf("expected log level INFO, got %s", cfg.LogLevel)
 	}
 }
 
@@ -116,5 +121,44 @@ func TestLoadRejectsZeroReadTimeout(t *testing.T) {
 	_, err := Load()
 	if err == nil {
 		t.Fatal("expected Load() to reject a zero HTTP read timeout")
+	}
+}
+
+func TestLoadLogLevels(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  slog.Level
+	}{
+		{"debug", "DEBUG", slog.LevelDebug},
+		{"info", "INFO", slog.LevelInfo},
+		{"warn", "WARN", slog.LevelWarn},
+		{"error", "ERROR", slog.LevelError},
+		{"lowercase debug", "debug", slog.LevelDebug},
+		{"trimmed debug", " Debug ", slog.LevelDebug},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("LOG_LEVEL", tt.value)
+
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if cfg.LogLevel != tt.want {
+				t.Errorf("expected log level %s, got %s", tt.want, cfg.LogLevel)
+			}
+		})
+	}
+}
+
+func TestLoadRejectsUnsupportedLogLevel(t *testing.T) {
+	t.Setenv("LOG_LEVEL", "TRACE")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for unsupported log level")
 	}
 }

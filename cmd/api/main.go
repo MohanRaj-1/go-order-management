@@ -4,20 +4,30 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/MohanRaj-1/go-order-management/internal/config"
+	"github.com/MohanRaj-1/go-order-management/internal/logger"
 )
 
 func main() {
+	if err := run(); err != nil {
+		slog.Error("Application failed", "error", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("Failed to load configuration: %v", err)
+		return fmt.Errorf("load configuration: %w", err)
 	}
+
+	appLogger := logger.New(os.Stdout, cfg.LogLevel)
 
 	mux := newRouter()
 
@@ -33,7 +43,7 @@ func main() {
 	serverErrors := make(chan error, 1)
 
 	go func() {
-		log.Printf("HTTP server listening on %s", server.Addr)
+		appLogger.Info("Starting HTTP server", "address", server.Addr)
 		serverErrors <- server.ListenAndServe()
 	}()
 
@@ -44,13 +54,20 @@ func main() {
 	)
 	defer stop()
 
+	var serverErr error
+	serverResultReceived := false
+
 	select {
 	case err := <-serverErrors:
+		serverResultReceived = true
+
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("HTTP server failed: %v", err)
+			serverErr = fmt.Errorf("HTTP server failed: %w", err)
+			appLogger.Error("HTTP server failed", "error", err)
 		}
+
 	case <-signalCtx.Done():
-		log.Println("Shutdown signal received")
+		appLogger.Info("Shutdown signal received")
 	}
 
 	shutdownCtx, cancel := context.WithTimeout(
@@ -59,15 +76,44 @@ func main() {
 	)
 	defer cancel()
 
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		log.Printf("Graceful shutdown failed: %v", err)
+	shutdownErr := server.Shutdown(shutdownCtx)
+	if shutdownErr != nil {
+		appLogger.Error("Graceful shutdown failed", "error", shutdownErr)
 
 		if closeErr := server.Close(); closeErr != nil {
-			log.Printf("Force closing server failed: %v", closeErr)
+			appLogger.Error("Force closing server failed", "error", closeErr)
+			shutdownErr = errors.Join(shutdownErr, closeErr)
 		}
 	}
 
-	log.Println("HTTP server stopped")
+	if !serverResultReceived {
+		err := <-serverErrors
+		serverResultReceived = true
+
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serverErr = fmt.Errorf("HTTP server failed: %w", err)
+			appLogger.Error("HTTP server failed", "error", err)
+		}
+	}
+
+	appLogger.Info("HTTP server stopped")
+
+	if serverErr != nil && shutdownErr != nil {
+		return errors.Join(
+			serverErr,
+			fmt.Errorf("shutdown failed: %w", shutdownErr),
+		)
+	}
+
+	if serverErr != nil {
+		return serverErr
+	}
+
+	if shutdownErr != nil {
+		return fmt.Errorf("shutdown failed: %w", shutdownErr)
+	}
+
+	return nil
 }
 
 func newRouter() *http.ServeMux {
