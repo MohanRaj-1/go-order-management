@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ type Config struct {
 	HTTPWriteTimeout      time.Duration
 	HTTPIdleTimeout       time.Duration
 	HTTPShutdownTimeout   time.Duration
+	LogLevel              slog.Level
 }
 
 func Load() (Config, error) {
@@ -55,6 +57,10 @@ func Load() (Config, error) {
 
 	if addr, ok := os.LookupEnv("HTTP_ADDR"); ok {
 		cfg.HTTPAddr = addr
+	}
+
+	if cfg.LogLevel, err = logLevelFromEnv(); err != nil {
+		return Config{}, err
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -101,4 +107,24 @@ func (cfg Config) Validate() error {
 	}
 
 	return nil
+}
+
+func logLevelFromEnv() (slog.Level, error) {
+	value, ok := os.LookupEnv("LOG_LEVEL")
+	if !ok {
+		return slog.LevelInfo, nil
+	}
+
+	switch strings.ToUpper(strings.TrimSpace(value)) {
+	case "DEBUG":
+		return slog.LevelDebug, nil
+	case "INFO":
+		return slog.LevelInfo, nil
+	case "WARN":
+		return slog.LevelWarn, nil
+	case "ERROR":
+		return slog.LevelError, nil
+	default:
+		return 0, fmt.Errorf("invalid LOG_LEVEL value %q: supported values are DEBUG, INFO, WARN, ERROR", value)
+	}
 }
