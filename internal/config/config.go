@@ -16,11 +16,13 @@ type Config struct {
 	HTTPIdleTimeout       time.Duration
 	HTTPShutdownTimeout   time.Duration
 	LogLevel              slog.Level
+	DatabaseURL           string
 }
 
 func Load() (Config, error) {
 	cfg := Config{
-		HTTPAddr: ":8080",
+		HTTPAddr:    ":8080",
+		DatabaseURL: os.Getenv("DATABASE_URL"),
 	}
 
 	var err error
@@ -87,6 +89,10 @@ func durationFromEnv(key string, fallback time.Duration) (time.Duration, error) 
 func (cfg Config) Validate() error {
 	if strings.TrimSpace(cfg.HTTPAddr) == "" {
 		return fmt.Errorf("HTTP_ADDR must not be empty")
+	}
+
+	if strings.TrimSpace(cfg.DatabaseURL) == "" {
+		return fmt.Errorf("DATABASE_URL must not be empty")
 	}
 
 	timeouts := []struct {

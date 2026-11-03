@@ -9,8 +9,10 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/MohanRaj-1/go-order-management/internal/config"
+	"github.com/MohanRaj-1/go-order-management/internal/database"
 	"github.com/MohanRaj-1/go-order-management/internal/logger"
 )
 
@@ -21,13 +23,29 @@ func main() {
 	}
 }
 
-func run() error {
+func run() (err error) {
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("load configuration: %w", err)
 	}
 
 	appLogger := logger.New(os.Stdout, cfg.LogLevel)
+
+	dbCtx, dbCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer dbCancel()
+
+	db, err := database.Open(dbCtx, cfg.DatabaseURL, database.DefaultConfig())
+	if err != nil {
+		return fmt.Errorf("initialize database: %w", err)
+	}
+	defer func() {
+		if closeErr := db.Close(); closeErr != nil {
+			appLogger.Error("Failed to close database connection", "error", closeErr)
+			err = errors.Join(err, fmt.Errorf("close database: %w", closeErr))
+		}
+	}()
+
+	appLogger.Info("Database connection established")
 
 	mux := newRouter()
 

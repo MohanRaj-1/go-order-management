@@ -35,6 +35,8 @@ func TestLoadDefaults(t *testing.T) {
 		})
 	}
 
+	t.Setenv("DATABASE_URL", "postgres://test:test@localhost:5432/testdb")
+
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("Load() returned an unexpected error: %v", err)
@@ -61,9 +63,13 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.LogLevel != slog.LevelInfo {
 		t.Errorf("expected log level INFO, got %s", cfg.LogLevel)
 	}
+	if cfg.DatabaseURL != "postgres://test:test@localhost:5432/testdb" {
+		t.Errorf("DatabaseURL = %q, want test database URL", cfg.DatabaseURL)
+	}
 }
 
 func TestLoadCustomReadTimeout(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://test:test@localhost:5432/testdb")
 	t.Setenv("HTTP_READ_TIMEOUT", "20s")
 
 	cfg, err := Load()
@@ -125,6 +131,7 @@ func TestLoadRejectsZeroReadTimeout(t *testing.T) {
 }
 
 func TestLoadLogLevels(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://test:test@localhost:5432/testdb")
 	tests := []struct {
 		name  string
 		value string
@@ -160,5 +167,29 @@ func TestLoadRejectsUnsupportedLogLevel(t *testing.T) {
 	_, err := Load()
 	if err == nil {
 		t.Fatal("expected error for unsupported log level")
+	}
+}
+
+func TestLoadDatabaseURL(t *testing.T) {
+	expected := "postgres://order_app@localhost:5432/order_management?sslmode=disable"
+
+	t.Setenv("DATABASE_URL", expected)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() returned an unexpected error: %v", err)
+	}
+
+	if cfg.DatabaseURL != expected {
+		t.Errorf("DatabaseURL = %q, want %q", cfg.DatabaseURL, expected)
+	}
+}
+
+func TestLoadRejectsMissingDatabaseURL(t *testing.T) {
+	t.Setenv("DATABASE_URL", "")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Load() expected an error when DATABASE_URL is missing")
 	}
 }
