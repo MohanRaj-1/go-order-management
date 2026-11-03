@@ -31,9 +31,20 @@ See [docs/roadmap.md](docs/roadmap.md) for the planned milestones and completion
 
 ## Project Status
 
-**Status:** Initial setup
+**Status:** Application foundation implemented; domain functionality in progress.
 
-Implementation has not started. Requirements, architecture, and project structure will be developed incrementally.
+The initial application foundation is in place, including:
+
+- HTTP server with a health endpoint and graceful shutdown.
+- Environment-based configuration and validation.
+- Structured JSON logging.
+- PostgreSQL connection initialization and connection pool configuration.
+- Startup database connectivity verification.
+- Unit tests and conditional database integration testing.
+
+The next stages will focus on database schema and migrations, domain persistence, and product, inventory, and order-management workflows.
+
+The project is under active development and is not yet production-ready.
 
 ## Engineering Principles
 
