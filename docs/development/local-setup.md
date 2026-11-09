@@ -95,7 +95,7 @@ Exit the PostgreSQL shell:
 
 ## Configuration
 
-The application reads its configuration from environment variables.
+The application reads its configuration from environment variables. At startup, it first loads an optional `.env` file from the current working directory using `godotenv`. Existing process environment variables take precedence over values in the file.
 
 ### Environment variables
 
@@ -120,34 +120,42 @@ The application rejects an empty database URL, an empty HTTP address, non-positi
 
 The following examples use Windows Command Prompt.
 
-Set the database connection string:
+From the repository root, create a local configuration file from the committed template:
 
 ```cmd
-set DATABASE_URL=postgres://order_app@localhost:5432/order_management?sslmode=disable
+copy .env.example .env
 ```
 
-The `sslmode=disable` setting is intended for local development only. Production database connections should use an appropriate TLS configuration.
+Edit `.env` locally and replace the template's username, password, and database name with the values provisioned above. For this guide, use the role `order_app` and database `order_management`. The following example contains only a password placeholder:
 
-For application startup, the Go process needs access to the database
-password. The PostgreSQL driver can obtain the database password from the
-`PGPASSWORD` environment variable.
+```dotenv
+DATABASE_URL='postgres://order_app:<url-encoded-password>@localhost:5432/order_management?sslmode=disable'
+```
 
-Windows Command Prompt does not provide a built-in hidden password prompt
-for setting environment variables. Avoid entering actual passwords directly
-in commands or committed scripts, as they may be exposed through terminal
-history or other local process information.
+Percent-encode reserved characters in the username and password components of the URL, rather than encoding the entire connection string. For example, a password containing `@` must use `%40` for that character; `#`, `%`, and `/` can be represented as `%23`, `%25`, and `%2F`. Encoding changes how a credential is represented in the URL; it does not change the PostgreSQL password or encrypt it. Incorrect encoding can cause URL parsing, hostname resolution, or authentication errors.
 
-For local development, provide the password through an appropriate
-local secrets-management mechanism or a securely configured environment.
+Single quotes in `.env` prevent `godotenv` from expanding `$` expressions in the value. Quoting does not replace URL encoding. The `sslmode=disable` setting is intended for local development only. Production database connections should use an appropriate TLS configuration.
 
-Optionally configure the HTTP address and logging level:
+Optionally add HTTP and logging settings to `.env`:
+
+```dotenv
+HTTP_ADDR=:8080
+LOG_LEVEL=INFO
+```
+
+`.env` contains local secrets and is ignored by Git; `.env.example` is the committed template and must contain placeholders only. Git ignore rules do not protect a file that is already tracked. Verify the local file's status without printing its contents:
 
 ```cmd
-set HTTP_ADDR=:8080
-set LOG_LEVEL=INFO
+git check-ignore .env
+git ls-files -- .env
+git diff --cached --name-only -- .env
 ```
 
-These environment variables apply only to the current Command Prompt session. Set them again when opening a new session.
+The first command should report `.env`; the other two should produce no output. Restart the application after editing `.env`, and run it from the repository root so the file is found. A missing `.env` is allowed; other file-loading errors stop startup.
+
+Production and CI can supply environment variables directly without creating `.env`. Existing environment variables, including explicitly empty values, are not overwritten by `godotenv.Load()`. If a local edit appears to have no effect, check for an existing process variable overriding it.
+
+The PostgreSQL driver can also obtain the password from `PGPASSWORD` when it is omitted from `DATABASE_URL`. Supply that value through an appropriate secrets-management mechanism or securely configured environment. Windows Command Prompt does not provide a built-in hidden password prompt for setting environment variables; avoid entering real credentials directly in commands or committed scripts.
 
 ### Security considerations
 
@@ -208,11 +216,17 @@ The database connectivity test uses `DATABASE_URL` and is skipped when the varia
 
 Ensure the specified PostgreSQL instance is running and accessible before running the database connectivity test.
 
+Package tests do not call `run()` and therefore do not automatically load the repository's `.env`. To run the integration test, supply `DATABASE_URL` and any required credentials to the test process through a securely configured environment or external tooling. Starting the application with `.env` does not export its values back to the parent terminal.
+
 ## Troubleshooting
 
 ### DATABASE_URL must not be empty
 
-Ensure that `DATABASE_URL` is set in the current terminal session.
+Ensure that `DATABASE_URL` is supplied in the process environment or in `.env` when running the application from the repository root. Check for an explicitly empty process variable overriding the file. For package tests, supply it directly to the test process.
+
+### Hostname resolution fails with credential text in the host
+
+Check the URL encoding of the username and password in `DATABASE_URL`. Reserved characters such as `@` can be interpreted as URL separators when left unencoded; use `%40` for an `@` within a credential. Do not paste credential-bearing connection strings or error output into documentation.
 
 ### Password authentication failed
 
@@ -231,3 +245,5 @@ Another process may already be listening on the configured HTTP address. Stop th
 - [Project Requirements](../requirements.md)
 - [Architecture](../architecture.md)
 - [Roadmap](../roadmap.md)
+- [Configuration](../technical/configuration.md)
+- [Database](../technical/database.md)

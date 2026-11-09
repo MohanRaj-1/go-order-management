@@ -8,6 +8,8 @@ The returned `Config` supplies the database connection string, logging level, HT
 
 ## Configuration Loading
 
+Before calling `config.Load()`, `run()` calls `godotenv.Load()` to load `.env` from the current working directory into the process environment. Existing environment variables take precedence, including explicitly empty values. A missing file is ignored; other loading errors stop startup. The configuration package itself remains responsible only for reading and interpreting the resulting process environment.
+
 `config.Load()` reads the process environment, using `os.Getenv()` for `DATABASE_URL` and `os.LookupEnv()` for the HTTP address, timeouts, and logging level. When optional variables are unset, it applies the default HTTP address, timeout durations, and logging level; `DATABASE_URL` has no default.
 
 Timeout values are parsed with `time.ParseDuration()`, and the logging level is converted to a `slog.Level` after trimming whitespace and normalizing case. Explicitly set empty values are treated as provided values rather than triggering defaults. They are rejected during parsing or validation, depending on the configuration field. After parsing and validation succeed, `Load()` returns the populated `Config` value and a `nil` error.
@@ -29,6 +31,8 @@ Log levels are checked separately by `logLevelFromEnv()` during loading, before 
 Configuration loading returns on the first encountered error rather than collecting multiple failures. Within `Config.Validate()`, the HTTP address is checked first, followed by the database URL, then the read-header, read, write, idle, and shutdown timeouts in that order.
 
 ## Error Handling
+
+Errors from local environment-file loading are handled in `run()` before configuration parsing. File-not-found errors are ignored using `errors.Is(err, os.ErrNotExist)`; other errors are returned with `load local environment file: %w`.
 
 `durationFromEnv()` wraps duration-parsing errors with the environment-variable name and supplied value, while `logLevelFromEnv()` creates an error identifying the unsupported value and accepted levels. `Load()` returns these helper errors directly with a zero-value `Config`; errors from `Config.Validate()` are instead wrapped with `validate configuration: %w`.
 
@@ -56,4 +60,4 @@ go test ./internal/config -count=1 -v
 
 ## Current Limitations
 
-The configuration package loads settings from the process environment with built-in defaults for optional values. It does not read configuration files, including `.env` files, query remote configuration sources, or retrieve secrets from a secrets-management service. Any external tooling used to supply configuration or secrets must make the required values available to the process before `config.Load()` runs. Configuration is loaded once during application startup; changes are not automatically reloaded while the application is running.
+The configuration package reads the process environment with built-in defaults for optional values; optional `.env` loading belongs to the application entry point. There is no support for other configuration-file formats, remote configuration sources, or secret retrieval from a secrets-management service. Production and CI must supply sensitive values through their environment or external tooling. Configuration is loaded once during application startup; changes are not automatically reloaded while the application is running.

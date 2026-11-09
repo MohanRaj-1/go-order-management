@@ -64,6 +64,8 @@ go test ./internal/database -count=1 -v
 
 Without `DATABASE_URL`, this command runs the unit tests and reports the integration test as skipped. Local environment configuration is described in the [local development setup guide](../development/local-setup.md#configure-the-environment).
 
+The package tests do not invoke `run()` or load `.env` automatically. Supply `DATABASE_URL` and any required credentials to the test process environment to enable the integration test; URL credentials require the same percent-encoding described in the setup guide.
+
 ## Current Limitations
 
 PostgreSQL is the only configured database, and the database package currently handles connection initialization and pool configuration. Schema migrations, database models, repositories, and application queries are not yet implemented. The application verifies connectivity during startup but does not continuously monitor database health.

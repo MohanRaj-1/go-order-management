@@ -2,7 +2,10 @@ module github.com/MohanRaj-1/go-order-management
 
 go 1.27.3
 
-require github.com/jackc/pgx/v5 v5.12.0
+require (
+	github.com/jackc/pgx/v5 v5.12.0
+	github.com/joho/godotenv v1.5.1
+)
 
 require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect
