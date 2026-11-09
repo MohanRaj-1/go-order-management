@@ -14,6 +14,7 @@ import (
 	"github.com/MohanRaj-1/go-order-management/internal/config"
 	"github.com/MohanRaj-1/go-order-management/internal/database"
 	"github.com/MohanRaj-1/go-order-management/internal/logger"
+	"github.com/joho/godotenv"
 )
 
 func main() {
@@ -24,6 +25,10 @@ func main() {
 }
 
 func run() (err error) {
+	if err := godotenv.Load(); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("load local environment file: %w", err)
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("load configuration: %w", err)

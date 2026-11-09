@@ -37,7 +37,7 @@ The router is assigned to `http.Server.Handler`. Requests for unregistered paths
 
 ### Startup
 
-`main()` calls `run()`, which loads configuration and initializes the application logger. Database initialization uses a separate five-second context, and a failure returns before the HTTP server starts.
+`main()` calls `run()`, which loads an optional local `.env` file before parsing configuration and initializing the application logger. Existing environment variables take precedence over file values; local configuration details are documented in the [setup guide](../development/local-setup.md#configure-the-environment). Database initialization uses a separate five-second context, and a failure returns before the HTTP server starts.
 
 After creating the router and server, the application calls `ListenAndServe()` in a goroutine. The goroutine logs the configured address before attempting to listen and sends the returned error to the buffered `serverErrors` channel. The startup log records the attempt to start the server; it does not confirm that the listen operation succeeded.
 

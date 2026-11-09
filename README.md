@@ -36,7 +36,7 @@ See [docs/roadmap.md](docs/roadmap.md) for the planned milestones and completion
 The initial application foundation is in place, including:
 
 - HTTP server with a health endpoint and graceful shutdown.
-- Environment-based configuration and validation.
+- Environment-based configuration and validation, with optional local `.env` loading.
 - Structured JSON logging.
 - PostgreSQL connection initialization and connection pool configuration.
 - Startup database connectivity verification.
@@ -45,6 +45,8 @@ The initial application foundation is in place, including:
 The next stages will focus on database schema and migrations, domain persistence, and product, inventory, and order-management workflows.
 
 The project is under active development and is not yet production-ready.
+
+For local configuration, copy `.env.example` to `.env` and follow the [local development setup guide](docs/development/local-setup.md#configure-the-environment). `.env` is ignored by Git; production and CI can supply environment variables directly.
 
 ## Engineering Principles
 
