@@ -61,6 +61,10 @@ This structure is a starting point. Packages and directories may be adjusted as 
 
 HTTP handlers should not own order business rules or independently coordinate inventory and order SQL operations.
 
+### internal/customer
+
+Owns customer registration and lookup, including input validation and persistence through a repository interface. The PostgreSQL implementation stores and retrieves customers, while the service defines the rules callers rely on. See the [customer module guide](technical/customer-module.md).
+
 ### internal/order
 
 - Own order-related business rules.
