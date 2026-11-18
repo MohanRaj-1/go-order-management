@@ -72,6 +72,12 @@ The relationships are:
 
 The inventory relationship is enforced through a unique constraint on `inventory.product_id`. The database does not require every product to have an inventory record; the application is responsible for creating both records together.
 
+### Customer Table
+
+The `customers` table uses a generated `BIGINT` identity primary key. It requires a name (`VARCHAR(150)`) and email (`VARCHAR(255)`), and a check constraint rejects names that are empty after trimming spaces. Both timestamp columns are required and default to `CURRENT_TIMESTAMP` on insert.
+
+The unique index on `LOWER(email)` rejects addresses that differ only in case while preserving the stored spelling. The [customer module](customer-module.md#domain-model-and-validation) validates email format before insertion.
+
 ### Data Integrity
 
 The schema uses primary keys, foreign keys, unique constraints, and check constraints to enforce data integrity.
