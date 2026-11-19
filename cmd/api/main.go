@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"github.com/MohanRaj-1/go-order-management/internal/config"
+	"github.com/MohanRaj-1/go-order-management/internal/customer"
 	"github.com/MohanRaj-1/go-order-management/internal/database"
+	httpapi "github.com/MohanRaj-1/go-order-management/internal/http"
 	"github.com/MohanRaj-1/go-order-management/internal/logger"
 	"github.com/joho/godotenv"
 )
@@ -52,7 +54,11 @@ func run() (err error) {
 
 	appLogger.Info("Database connection established")
 
-	mux := newRouter()
+	customerRepository := customer.NewPostgresRepository(db)
+	customerService := customer.NewService(customerRepository)
+	customerHandler := httpapi.NewCustomerHandler(customerService)
+
+	mux := newRouter(customerHandler)
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
@@ -139,12 +145,15 @@ func run() (err error) {
 	return nil
 }
 
-func newRouter() *http.ServeMux {
+func newRouter(customerHandler *httpapi.CustomerHandler) *http.ServeMux {
 	mux := http.NewServeMux()
+
 	mux.HandleFunc("GET /health", healthHandler)
+	mux.HandleFunc("POST /customers", customerHandler.CreateCustomer)
+	mux.HandleFunc("GET /customers/{id}", customerHandler.GetCustomerByID)
+
 	return mux
 }
-
 func healthHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintln(w, "OK")
