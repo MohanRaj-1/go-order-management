@@ -31,22 +31,27 @@ See [docs/roadmap.md](docs/roadmap.md) for the planned milestones and completion
 
 ## Project Status
 
-**Status:** Application foundation implemented; domain functionality in progress.
+**Status:** Core application foundation and initial domain functionality implemented; development in progress.
 
-The initial application foundation is in place, including:
+The project currently includes:
 
 - HTTP server with a health endpoint and graceful shutdown.
 - Environment-based configuration and validation, with optional local `.env` loading.
 - Structured JSON logging.
-- PostgreSQL connection initialization and connection pool configuration.
-- Startup database connectivity verification.
-- Unit tests and conditional database integration testing.
+- PostgreSQL connection initialization, connection pool configuration, and startup connectivity verification.
+- Database schema and versioned migrations for customers, products, inventory, orders, and order items.
+- Customer domain and PostgreSQL persistence, with HTTP endpoints for customer creation and retrieval.
+- Product domain, validation, and PostgreSQL persistence.
+- Initial inventory record creation as part of product creation.
+- Transaction management to ensure product and initial inventory creation succeed or roll back together.
+- Unit tests and database integration tests for important application behavior.
 
-The next stages will focus on database schema and migrations, domain persistence, and product, inventory, and order-management workflows.
+The current implementation follows a modular monolith architecture. Product and inventory creation share a database transaction to preserve data consistency.
 
-The project is under active development and is not yet production-ready.
+Further development will focus on order-management workflows, inventory operations, API expansion, concurrency control, and distributed-systems concepts.
 
 For local configuration, copy `.env.example` to `.env` and follow the [local development setup guide](docs/development/local-setup.md#configure-the-environment). `.env` is ignored by Git; production and CI can supply environment variables directly.
+The project is under active development and is not yet production-ready.
 
 ## Engineering Principles
 
@@ -60,5 +65,3 @@ For local configuration, copy `.env.example` to `.env` and follow the [local dev
 ## Learning Focus
 
 This project is intended to develop practical backend engineering skills through implementation, testing, debugging, and architectural reasoning.
-
-It is a learning project, not a claim of production readiness.
