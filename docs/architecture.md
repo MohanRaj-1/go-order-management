@@ -2,22 +2,22 @@
 
 ## 1. Overview
 
-The application will begin as a modular monolith written in Go, backed by PostgreSQL.
+The application is a modular monolith written in Go, backed by PostgreSQL.
 
-The system will have clear boundaries between HTTP transport, application and domain logic, persistence, and application startup.
+It separates HTTP transport, application and domain logic, persistence, and application startup into cohesive packages with defined responsibilities.
 
-The initial goal is to keep the architecture understandable, testable, and extensible without introducing unnecessary complexity.
+The architecture aims to remain understandable, testable, and extensible without introducing unnecessary complexity.
 
 ## 2. Architectural Style
 
-The initial implementation will use a modular monolith.
+The application uses a modular monolith.
 
-- The application will run as one deployable unit.
-- Modules will have clearly defined responsibilities.
-- Modules will communicate through Go functions and interfaces where appropriate.
+- The application runs as one deployable unit.
+- Modules have clearly defined responsibilities.
+- Modules communicate through Go functions and interfaces where appropriate.
 - Separate services will be considered only when a concrete requirement justifies them.
 
-## 3. Proposed Project Structure
+## 3. Project Structure
 
 ```text
 cmd/
@@ -25,22 +25,17 @@ cmd/
     main.go
 
 internal/
-  transport/
-    http/
-
-  order/
+  config/
+  customer/
+  database/
+  http/
+  inventory/
+  logger/
   product/
 
-  platform/
-    database/
-
+migrations/
 docs/
-  architecture.md
-  requirements.md
-  roadmap.md
 ```
-
-This structure is a starting point. Packages and directories may be adjusted as implementation details become clearer.
 
 ## 4. Package Responsibilities
 
@@ -52,7 +47,7 @@ This structure is a starting point. Packages and directories may be adjusted as 
 - Start the HTTP server.
 - Coordinate graceful shutdown.
 
-### internal/transport/http
+### internal/http
 
 - Register HTTP routes.
 - Decode and validate request formats.
@@ -65,28 +60,36 @@ HTTP handlers should not own order business rules or independently coordinate in
 
 Owns customer registration and lookup, including input validation and persistence through a repository interface. The PostgreSQL implementation stores and retrieves customers, while the service defines the rules callers rely on. See the [customer module guide](technical/customer-module.md).
 
-### internal/order
+### internal/order (planned)
 
-- Own order-related business rules.
-- Coordinate order creation and retrieval.
-- Ensure order creation follows the required workflow.
-- Coordinate with persistence abstractions to preserve order and inventory consistency.
+- Will own order-related business rules.
+- Will coordinate order creation and retrieval.
+- Will ensure order creation follows the required workflow.
+- Will coordinate with persistence abstractions to preserve order and inventory consistency.
 
 ### internal/product
 
-- Own product-related behavior.
-- Support product listing and retrieval.
-- Provide the product information needed by order operations through appropriate application or persistence interfaces.
+- Owns the product domain model and input validation.
+- Defines the product repository contract.
+- Implements product persistence through PostgreSQL.
+- Coordinates product creation and initial inventory creation within a single database transaction.
 
-### internal/platform/database
+### internal/inventory
 
-- Establish and configure PostgreSQL connectivity.
-- Provide shared database infrastructure.
-- Support transaction and persistence setup as the design develops.
+- Defines the inventory repository contract.
+- Implements inventory persistence through PostgreSQL.
+- Creates the initial inventory record associated with a product.
+- Relies on database constraints to enforce inventory quantity and product relationship invariants.
 
-This package should not contain order-specific business rules.
+### internal/database
 
-## 5. Request Flow: Create an Order
+- Establishes and configures PostgreSQL connectivity.
+- Configures the database connection pool.
+- Defines the shared DBTX interface for database operations.
+- Provides transaction management through TransactionManager.
+- Keeps transaction infrastructure independent of module-specific business rules.
+
+## 5. Planned Request Flow: Create an Order
 
 1. The HTTP handler receives an order-creation request.
 2. The handler decodes the request and validates its structure.
@@ -104,13 +107,24 @@ The implementation must also protect against concurrent requests overselling inv
 
 ## 6. Persistence and Transaction Boundaries
 
-The order operation coordinates the complete business transaction.
+The application uses PostgreSQL through Go's `database/sql` package and the pgx standard-library adapter.
 
-Small interfaces may be used where they help separate application logic from PostgreSQL-specific implementation details and enable unit testing.
+Repositories depend on the `database.DBTX` interface, which is implemented by both `*sql.DB` and `*sql.Tx`. This allows repository operations to execute through either the connection pool or an existing transaction.
 
-All database operations participating in order creation must use the same transaction. The transaction ownership and repository interfaces will be designed explicitly during implementation.
+The application service coordinates the business operation, while the transaction manager owns transaction lifecycle management.
 
-PostgreSQL constraints and atomic conditional operations will help enforce critical data invariants.
+Product creation demonstrates this approach:
+
+1. The product service validates the product input.
+2. The transaction manager begins a database transaction.
+3. The product repository creates the product.
+4. The inventory repository creates its initial inventory record using the same transaction.
+5. The transaction commits only when both operations succeed.
+6. If either operation fails, the transaction is rolled back.
+
+The transaction manager owns transaction lifecycle management but does not contain module-specific business rules.
+
+Order creation will follow the same principle: all persistence operations participating in one business transaction must use the same transaction.
 
 ## 7. Error Handling and Idempotency
 
@@ -155,10 +169,9 @@ Verify rollback behavior, idempotent retries, and relevant error paths.
 
 The following decisions remain open:
 
-- Exact package and interface boundaries.
-- Database schema and migration strategy.
-- Transaction implementation and locking strategy.
-- REST endpoints and response formats.
+- Order-specific package and interface boundaries.
+- Inventory locking and concurrency-control strategy.
+- REST endpoints and response formats for order operations.
 - Order status transitions.
 - Idempotency record model and retention.
 - Authentication and authorization.

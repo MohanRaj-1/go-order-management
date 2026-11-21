@@ -35,6 +35,61 @@ Lifetime and idle-time limits govern connection reuse and cleanup; they do not s
 
 `Config.Validate()` requires a positive maximum open count, a non-negative maximum idle count, and positive lifetime and idle-time durations. It also rejects `MaxIdleConnections` values greater than `MaxOpenConnections`: idle connections are part of the total open count, so their configured limit must fit within that total. A zero idle limit is valid and prevents the pool from retaining idle connections.
 
+## Database Operations and Transactions
+
+The `internal/database` package provides a shared interface for database operations and manages transaction lifecycles.
+
+### DBTX Interface
+
+The `DBTX` interface defines the database operations required by repositories:
+
+- `ExecContext`
+- `QueryContext`
+- `QueryRowContext`
+
+Both `*sql.DB` and `*sql.Tx` implement this interface.
+
+This allows PostgreSQL repositories to execute queries using either the database connection pool or an existing transaction without depending directly on a specific database handle type.
+
+Repositories can therefore participate in a transaction without requiring separate implementations for transactional and non-transactional operations.
+
+### Transaction Manager
+
+`internal/database/transaction.go` provides the `TransactionManager`, which owns the lifecycle of a database transaction.
+
+Its `WithinTransaction` method accepts a context and a callback that receives the active `*sql.Tx`.
+
+The transaction lifecycle is:
+
+1. Begin a transaction using `BeginTx`.
+2. Execute the supplied callback with the transaction.
+3. If the callback returns an error, roll back the transaction.
+4. If the callback succeeds, commit the transaction.
+5. Use deferred rollback as a safety mechanism for unfinished transactions, including when the callback panics.
+
+If both the callback and rollback return errors, the transaction manager combines them using `errors.Join`, except when rollback reports `sql.ErrTxDone`.
+
+Commit failures are returned as errors. A commit failure does not necessarily establish whether the transaction was committed, so callers must not assume that blindly retrying the operation is safe.
+
+The transaction manager handles transaction lifecycle management only. It does not contain product, inventory, customer, or order business rules.
+
+### Transaction Coordination
+
+The application service responsible for a business operation determines which repository operations must participate in the same transaction.
+
+Product creation demonstrates this approach:
+
+1. The product service validates the input before starting a transaction.
+2. The transaction manager begins the transaction.
+3. The product repository creates the product using the transaction.
+4. The inventory repository creates the initial inventory record using the same transaction.
+5. The transaction manager commits when both operations succeed.
+6. If either operation fails, the transaction is rolled back.
+
+Both repositories accept `database.DBTX`, allowing them to execute their operations through the same `*sql.Tx`.
+
+This ensures that product creation and initial inventory creation succeed or fail together.
+
 ## Connectivity Check
 
 `database.Open()` calls `db.PingContext(ctx)` to verify that PostgreSQL can be reached before returning the database handle. This check is necessary because successfully creating a handle with `sql.Open()` does not establish that a database connection is available.
@@ -181,13 +236,38 @@ Run the database package tests from the repository root:
 go test ./internal/database -count=1 -v
 ```
 
-Without `DATABASE_URL`, this command runs the unit tests and reports the integration test as skipped. Local environment configuration is described in the [local development setup guide](../development/local-setup.md#configure-the-environment).
+The database package tests use two separate environment variables for PostgreSQL integration tests:
 
-The package tests do not invoke `run()` or load `.env` automatically. Supply `DATABASE_URL` and any required credentials to the test process environment to enable the integration test; URL credentials require the same percent-encoding described in the setup guide.
+- `DATABASE_URL` enables `TestOpen`.
+- `TEST_DATABASE_URL` enables the transaction manager integration tests.
+
+When the corresponding variable is unset or empty, its associated integration tests are skipped. The configuration unit tests run independently of PostgreSQL.
+
+Local environment configuration is described in the [local development setup guide](../development/local-setup.md#configure-the-environment).
+
+The package tests do not invoke `run()` or load `.env` automatically. Supply the appropriate environment variable and any required credentials to the test process. Use `DATABASE_URL` for the connectivity integration test and `TEST_DATABASE_URL` for the transaction manager integration tests. URL credentials require the same percent-encoding described in the setup guide.
+
+### Transaction Tests
+
+Tests in `internal/database/transaction_test.go` verify the transaction manager against PostgreSQL.
+
+The integration tests cover:
+
+- `TestTransactionManager_WithinTransaction_Commits`: verifies that changes made inside a successful transaction are committed.
+- `TestTransactionManager_WithinTransaction_RollsBackOnCallbackError`: verifies that changes are rolled back when the callback returns an error.
+- `TestTransactionManager_WithinTransaction_RollsBackOnPanic`: verifies that unfinished transaction changes are rolled back when the callback panics.
+
+These tests use `TEST_DATABASE_URL` to connect to the test database. They are skipped when the variable is unset or empty.
+
+The database connection is closed after each test, and test records are cleaned up.
 
 ## Current Limitations
 
-PostgreSQL is the only configured database. The `internal/database` package currently handles connection initialization and pool configuration; database models, repositories, and application queries have not yet been implemented.
+PostgreSQL is the only configured database. The `internal/database` package provides connection initialization, connection pool configuration, the shared `DBTX` interface, and transaction lifecycle management.
+
+Customer, product, and inventory persistence have been implemented. Product creation and initial inventory creation participate in a single database transaction.
+
+The order application module and its persistence workflow have not yet been implemented, although the database schema for orders and order items is already present.
 
 The initial schema establishes table relationships and database-level constraints, but some business rules require application-level enforcement:
 
@@ -200,3 +280,9 @@ The initial schema establishes table relationships and database-level constraint
 - The application must validate monetary input where values with more than two fractional digits should be rejected rather than rounded by PostgreSQL's `NUMERIC(10,2)` type.
 
 The application verifies database connectivity during startup but does not continuously monitor database health.
+
+## Related Module Guides
+
+- [Customer module guide](customer-module.md) — customer persistence and email uniqueness.
+- [Product module guide](product-module.md) — product persistence, validation, and monetary representation.
+- [Inventory module guide](inventory-module.md) — inventory persistence and database constraints.
