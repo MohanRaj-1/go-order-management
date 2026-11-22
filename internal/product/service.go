@@ -10,13 +10,16 @@ import (
 )
 
 type Service struct {
+	productRepository  Repository
 	transactionManager *database.TransactionManager
 }
 
 func NewService(
+	db *sql.DB,
 	transactionManager *database.TransactionManager,
 ) *Service {
 	return &Service{
+		productRepository:  NewPostgresRepository(db),
 		transactionManager: transactionManager,
 	}
 }
@@ -49,6 +52,18 @@ func (s *Service) CreateProduct(
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	return product, nil
+}
+
+func (s *Service) GetProductByID(
+	ctx context.Context,
+	id int64,
+) (*Product, error) {
+	product, err := s.productRepository.GetByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("get product by ID %d: %w", id, err)
 	}
 
 	return product, nil

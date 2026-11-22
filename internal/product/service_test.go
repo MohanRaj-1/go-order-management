@@ -13,14 +13,16 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-func TestService_CreateProduct_Success(t *testing.T) {
+func setupServiceProductTest(t *testing.T) (context.Context, *sql.DB, *Service, string) {
+	t.Helper()
+
 	connectionString := os.Getenv("TEST_DATABASE_URL")
 	if connectionString == "" {
 		t.Skip("TEST_DATABASE_URL is not set")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	t.Cleanup(cancel)
 
 	db, err := database.Open(ctx, connectionString, database.DefaultConfig())
 	if err != nil {
@@ -32,7 +34,7 @@ func TestService_CreateProduct_Success(t *testing.T) {
 		}
 	})
 
-	service := NewService(database.NewTransactionManager(db))
+	service := NewService(db, database.NewTransactionManager(db))
 	sku := fmt.Sprintf("product-service-test-%d", time.Now().UnixNano())
 
 	t.Cleanup(func() {
@@ -52,6 +54,11 @@ func TestService_CreateProduct_Success(t *testing.T) {
 		}
 	})
 
+	return ctx, db, service, sku
+}
+
+func TestService_CreateProduct_Success(t *testing.T) {
+	ctx, db, service, sku := setupServiceProductTest(t)
 	product, err := service.CreateProduct(ctx, sku, "Service Test Product", "Test description", 1250)
 	if err != nil {
 		t.Fatalf("create product: %v", err)
@@ -90,6 +97,73 @@ func TestService_CreateProduct_Success(t *testing.T) {
 	if physicalQuantity != 0 || reservedQuantity != 0 {
 		t.Fatalf("expected zero inventory quantities, got physical=%d and reserved=%d",
 			physicalQuantity, reservedQuantity)
+	}
+}
+
+func TestService_GetProductByID_Success(t *testing.T) {
+	ctx, _, service, sku := setupServiceProductTest(t)
+	created, err := service.CreateProduct(ctx, sku, "Service Lookup Product", "Lookup test description", 1250)
+	if err != nil {
+		t.Fatalf("create product: %v", err)
+	}
+	if created == nil {
+		t.Fatal("expected a created product")
+	}
+
+	got, err := service.GetProductByID(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("get product by ID %d: %v", created.ID, err)
+	}
+	if got == nil {
+		t.Fatal("expected a retrieved product")
+	}
+	if got.ID != created.ID || got.SKU != created.SKU || got.Name != created.Name ||
+		got.Description != created.Description || got.Price != created.Price || got.Status != created.Status ||
+		!got.CreatedAt.Equal(created.CreatedAt) || !got.UpdatedAt.Equal(created.UpdatedAt) {
+		t.Errorf("retrieved product = %+v, want %+v", *got, *created)
+	}
+}
+
+func TestService_GetProductByID_NotFound(t *testing.T) {
+	_, _, service, _ := setupServiceProductTest(t)
+
+	product, err := service.GetProductByID(context.Background(), -1)
+
+	if err == nil {
+		t.Fatal("expected an error for a non-existent product")
+	}
+
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+
+	if product != nil {
+		t.Fatalf("expected nil product, got %+v", product)
+	}
+}
+
+func TestService_GetProductByID_DatabaseError(t *testing.T) {
+	_, _, service, _ := setupServiceProductTest(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	product, err := service.GetProductByID(ctx, 1)
+
+	if err == nil {
+		t.Fatal("expected a database error")
+	}
+
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+
+	if errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected a database error, got ErrNotFound: %v", err)
+	}
+
+	if product != nil {
+		t.Fatalf("expected nil product, got %+v", product)
 	}
 }
 
@@ -171,7 +245,7 @@ func TestService_CreateProduct_RollsBackWhenInventoryCreationFails(t *testing.T)
 		}
 	})
 
-	service := NewService(manager)
+	service := NewService(db, manager)
 	product, err := service.CreateProduct(ctx, sku, "Rollback Test Product", "Test description", 1250)
 	if err == nil {
 		t.Fatal("expected inventory creation to fail")
@@ -196,7 +270,7 @@ func TestService_CreateProduct_RollsBackWhenInventoryCreationFails(t *testing.T)
 }
 
 func TestService_CreateProduct_InvalidInput(t *testing.T) {
-	service := NewService(nil)
+	service := NewService(nil, nil)
 
 	product, err := service.CreateProduct(
 		context.Background(),
