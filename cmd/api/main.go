@@ -16,6 +16,7 @@ import (
 	"github.com/MohanRaj-1/go-order-management/internal/database"
 	httpapi "github.com/MohanRaj-1/go-order-management/internal/http"
 	"github.com/MohanRaj-1/go-order-management/internal/logger"
+	"github.com/MohanRaj-1/go-order-management/internal/product"
 	"github.com/joho/godotenv"
 )
 
@@ -58,7 +59,11 @@ func run() (err error) {
 	customerService := customer.NewService(customerRepository)
 	customerHandler := httpapi.NewCustomerHandler(customerService)
 
-	mux := newRouter(customerHandler)
+	productTransactionManager := database.NewTransactionManager(db)
+	productService := product.NewService(db, productTransactionManager)
+	productHandler := httpapi.NewProductHandler(productService)
+
+	mux := newRouter(customerHandler, productHandler)
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
@@ -143,18 +148,4 @@ func run() (err error) {
 	}
 
 	return nil
-}
-
-func newRouter(customerHandler *httpapi.CustomerHandler) *http.ServeMux {
-	mux := http.NewServeMux()
-
-	mux.HandleFunc("GET /health", healthHandler)
-	mux.HandleFunc("POST /customers", customerHandler.CreateCustomer)
-	mux.HandleFunc("GET /customers/{id}", customerHandler.GetCustomerByID)
-
-	return mux
-}
-func healthHandler(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprintln(w, "OK")
 }
