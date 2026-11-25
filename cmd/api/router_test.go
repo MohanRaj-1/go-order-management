@@ -11,6 +11,7 @@ import (
 
 	"github.com/MohanRaj-1/go-order-management/internal/customer"
 	httpapi "github.com/MohanRaj-1/go-order-management/internal/http"
+	"github.com/MohanRaj-1/go-order-management/internal/inventory"
 	"github.com/MohanRaj-1/go-order-management/internal/product"
 )
 
@@ -86,13 +87,77 @@ func (s *stubCustomerService) GetCustomerByID(
 
 	return s.getCustomer, s.getErr
 }
+
+type stubInventoryService struct {
+	inventory *inventory.Inventory
+	getErr    error
+	getCalls  int
+	gotID     int64
+
+	adjustErr   error
+	adjustCalls int
+	gotDelta    int32
+
+	reserveErr   error
+	reserveCalls int
+	gotReserve   int32
+
+	releaseErr   error
+	releaseCalls int
+	gotRelease   int32
+}
+
+var _ httpapi.InventoryService = (*stubInventoryService)(nil)
+
+func (s *stubInventoryService) GetInventory(
+	ctx context.Context,
+	productID int64,
+) (*inventory.Inventory, error) {
+	s.getCalls++
+	s.gotID = productID
+	return s.inventory, s.getErr
+}
+
+func (s *stubInventoryService) AdjustPhysicalQuantity(
+	ctx context.Context,
+	productID int64,
+	delta int32,
+) error {
+	s.adjustCalls++
+	s.gotID = productID
+	s.gotDelta = delta
+	return s.adjustErr
+}
+
+func (s *stubInventoryService) ReserveStock(
+	ctx context.Context,
+	productID int64,
+	quantity int32,
+) error {
+	s.reserveCalls++
+	s.gotID = productID
+	s.gotReserve = quantity
+	return s.reserveErr
+}
+
+func (s *stubInventoryService) ReleaseStock(
+	ctx context.Context,
+	productID int64,
+	quantity int32,
+) error {
+	s.releaseCalls++
+	s.gotID = productID
+	s.gotRelease = quantity
+	return s.releaseErr
+}
+
 func TestRouterHealth(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rec := httptest.NewRecorder()
 
 	customerHandler := httpapi.NewCustomerHandler(&stubCustomerService{})
 	productHandler := httpapi.NewProductHandler(&stubProductService{})
-	mux := newRouter(customerHandler, productHandler)
+	mux := newRouter(customerHandler, productHandler, httpapi.NewInventoryHandler(nil))
 
 	mux.ServeHTTP(rec, req)
 
@@ -111,7 +176,7 @@ func TestRouterNotFound(t *testing.T) {
 
 	customerHandler := httpapi.NewCustomerHandler(&stubCustomerService{})
 	productHandler := httpapi.NewProductHandler(&stubProductService{})
-	mux := newRouter(customerHandler, productHandler)
+	mux := newRouter(customerHandler, productHandler, httpapi.NewInventoryHandler(nil))
 
 	mux.ServeHTTP(rec, req)
 
@@ -137,7 +202,7 @@ func TestRouterCreateCustomer(t *testing.T) {
 
 	customerHandler := httpapi.NewCustomerHandler(service)
 	productHandler := httpapi.NewProductHandler(&stubProductService{})
-	mux := newRouter(customerHandler, productHandler)
+	mux := newRouter(customerHandler, productHandler, httpapi.NewInventoryHandler(nil))
 
 	body := `{"name":"John Doe","email":"john@example.com"}`
 	req := httptest.NewRequest(
@@ -196,7 +261,7 @@ func TestRouterGetCustomerByID(t *testing.T) {
 
 	customerHandler := httpapi.NewCustomerHandler(service)
 	productHandler := httpapi.NewProductHandler(&stubProductService{})
-	mux := newRouter(customerHandler, productHandler)
+	mux := newRouter(customerHandler, productHandler, httpapi.NewInventoryHandler(nil))
 
 	req := httptest.NewRequest(
 		http.MethodGet,
@@ -253,7 +318,7 @@ func TestRouterCreateProduct(t *testing.T) {
 	service := &stubProductService{createdProduct: created}
 	customerHandler := httpapi.NewCustomerHandler(&stubCustomerService{})
 	productHandler := httpapi.NewProductHandler(service)
-	mux := newRouter(customerHandler, productHandler)
+	mux := newRouter(customerHandler, productHandler, httpapi.NewInventoryHandler(nil))
 
 	body := `{"sku":"LAPTOP-001","name":"Laptop","description":"Development laptop","price":7500000}`
 	req := httptest.NewRequest(http.MethodPost, "/products", strings.NewReader(body))
@@ -314,7 +379,7 @@ func TestRouterGetProductByID(t *testing.T) {
 	}
 	customerHandler := httpapi.NewCustomerHandler(&stubCustomerService{})
 	productHandler := httpapi.NewProductHandler(service)
-	mux := newRouter(customerHandler, productHandler)
+	mux := newRouter(customerHandler, productHandler, httpapi.NewInventoryHandler(nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/products/101", nil)
 
@@ -350,5 +415,216 @@ func TestRouterGetProductByID(t *testing.T) {
 	}
 	if service.gotID != 101 {
 		t.Errorf("expected service ID 101, got %d", service.gotID)
+	}
+}
+
+func TestRouterGetInventory(t *testing.T) {
+	now := time.Now().UTC()
+
+	expected := &inventory.Inventory{
+		ID:               1,
+		ProductID:        101,
+		PhysicalQuantity: 20,
+		ReservedQuantity: 5,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}
+
+	service := &stubInventoryService{
+		inventory: expected,
+	}
+
+	customerHandler := httpapi.NewCustomerHandler(&stubCustomerService{})
+	productHandler := httpapi.NewProductHandler(&stubProductService{})
+	inventoryHandler := httpapi.NewInventoryHandler(service)
+
+	mux := newRouter(customerHandler, productHandler, inventoryHandler)
+
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/products/101/inventory",
+		nil,
+	)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf(
+			"expected status %d, got %d; body: %s",
+			http.StatusOK,
+			rec.Code,
+			rec.Body.String(),
+		)
+	}
+
+	var got struct {
+		ID                int64     `json:"id"`
+		ProductID         int64     `json:"product_id"`
+		PhysicalQuantity  int32     `json:"physical_quantity"`
+		ReservedQuantity  int32     `json:"reserved_quantity"`
+		AvailableQuantity int32     `json:"available_quantity"`
+		CreatedAt         time.Time `json:"created_at"`
+		UpdatedAt         time.Time `json:"updated_at"`
+	}
+
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if got.ID != expected.ID ||
+		got.ProductID != expected.ProductID ||
+		got.PhysicalQuantity != expected.PhysicalQuantity ||
+		got.ReservedQuantity != expected.ReservedQuantity ||
+		got.AvailableQuantity != expected.AvailableQuantity() ||
+		!got.CreatedAt.Equal(expected.CreatedAt) ||
+		!got.UpdatedAt.Equal(expected.UpdatedAt) {
+		t.Errorf("unexpected inventory response: %+v", got)
+	}
+
+	if service.getCalls != 1 {
+		t.Errorf("expected one service call, got %d", service.getCalls)
+	}
+
+	if service.gotID != 101 {
+		t.Errorf("expected service product ID 101, got %d", service.gotID)
+	}
+}
+
+func TestRouterAdjustPhysicalQuantity(t *testing.T) {
+	service := &stubInventoryService{}
+
+	customerHandler := httpapi.NewCustomerHandler(&stubCustomerService{})
+	productHandler := httpapi.NewProductHandler(&stubProductService{})
+	inventoryHandler := httpapi.NewInventoryHandler(service)
+
+	mux := newRouter(customerHandler, productHandler, inventoryHandler)
+
+	body := `{"delta":20}`
+	req := httptest.NewRequest(
+		http.MethodPatch,
+		"/products/101/inventory/physical-quantity",
+		strings.NewReader(body),
+	)
+	req.Header.Set("Content-Type", "application/json")
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf(
+			"expected status %d, got %d; body: %s",
+			http.StatusNoContent,
+			rec.Code,
+			rec.Body.String(),
+		)
+	}
+
+	if rec.Body.Len() != 0 {
+		t.Errorf("expected empty response body, got %q", rec.Body.String())
+	}
+
+	if service.adjustCalls != 1 {
+		t.Errorf("expected one service call, got %d", service.adjustCalls)
+	}
+
+	if service.gotID != 101 {
+		t.Errorf("expected product ID 101, got %d", service.gotID)
+	}
+
+	if service.gotDelta != 20 {
+		t.Errorf("expected delta 20, got %d", service.gotDelta)
+	}
+}
+
+func TestRouterReserveStock(t *testing.T) {
+	service := &stubInventoryService{}
+
+	customerHandler := httpapi.NewCustomerHandler(&stubCustomerService{})
+	productHandler := httpapi.NewProductHandler(&stubProductService{})
+	inventoryHandler := httpapi.NewInventoryHandler(service)
+
+	mux := newRouter(customerHandler, productHandler, inventoryHandler)
+
+	body := `{"quantity":5}`
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/products/101/inventory/reservations",
+		strings.NewReader(body),
+	)
+	req.Header.Set("Content-Type", "application/json")
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf(
+			"expected status %d, got %d; body: %s",
+			http.StatusNoContent,
+			rec.Code,
+			rec.Body.String(),
+		)
+	}
+
+	if rec.Body.Len() != 0 {
+		t.Errorf("expected empty response body, got %q", rec.Body.String())
+	}
+
+	if service.reserveCalls != 1 {
+		t.Errorf("expected one service call, got %d", service.reserveCalls)
+	}
+
+	if service.gotID != 101 {
+		t.Errorf("expected product ID 101, got %d", service.gotID)
+	}
+
+	if service.gotReserve != 5 {
+		t.Errorf("expected quantity 5, got %d", service.gotReserve)
+	}
+}
+
+func TestRouterReleaseStock(t *testing.T) {
+	service := &stubInventoryService{}
+
+	customerHandler := httpapi.NewCustomerHandler(&stubCustomerService{})
+	productHandler := httpapi.NewProductHandler(&stubProductService{})
+	inventoryHandler := httpapi.NewInventoryHandler(service)
+
+	mux := newRouter(customerHandler, productHandler, inventoryHandler)
+
+	body := `{"quantity":5}`
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/products/101/inventory/reservations/release",
+		strings.NewReader(body),
+	)
+	req.Header.Set("Content-Type", "application/json")
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf(
+			"expected status %d, got %d; body: %s",
+			http.StatusNoContent,
+			rec.Code,
+			rec.Body.String(),
+		)
+	}
+
+	if rec.Body.Len() != 0 {
+		t.Errorf("expected empty response body, got %q", rec.Body.String())
+	}
+
+	if service.releaseCalls != 1 {
+		t.Errorf("expected one service call, got %d", service.releaseCalls)
+	}
+
+	if service.gotID != 101 {
+		t.Errorf("expected product ID 101, got %d", service.gotID)
+	}
+
+	if service.gotRelease != 5 {
+		t.Errorf("expected quantity 5, got %d", service.gotRelease)
 	}
 }

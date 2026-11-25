@@ -31,6 +31,7 @@ internal/
   http/
   inventory/
   logger/
+  order/       (planned)
   product/
 
 migrations/
@@ -76,10 +77,16 @@ Owns customer registration and lookup, including input validation and persistenc
 
 ### internal/inventory
 
-- Defines the inventory repository contract.
+- Defines the inventory domain model and repository contract.
 - Implements inventory persistence through PostgreSQL.
-- Creates the initial inventory record associated with a product.
-- Relies on database constraints to enforce inventory quantity and product relationship invariants.
+- Provides operations for retrieving inventory, adjusting physical
+  quantity, reserving stock, and releasing reservations.
+- Creates the initial inventory record when requested by the Product
+  service as part of product creation.
+- Uses conditional database updates to protect inventory quantity
+  invariants during concurrent operations.
+- Relies on database constraints to enforce inventory quantity and
+  product relationship invariants.
 
 ### internal/database
 
@@ -141,19 +148,29 @@ Detailed retry policies and idempotency persistence will be designed during impl
 
 ### Unit tests
 
-Test business behavior independently using fakes or other controlled dependencies.
+Test business behavior independently using fakes or other controlled
+dependencies.
 
 ### Integration tests
 
-Verify PostgreSQL queries, constraints, transactions, and persistence behavior against a real database.
+Verify PostgreSQL queries, constraints, transactions, and persistence
+behavior against a real database.
 
 ### Concurrency tests
 
-Verify that simultaneous order requests cannot reserve more inventory than is available.
+Verify that simultaneous inventory operations cannot reserve more
+stock than is available.
+
+Order-specific concurrency tests will be introduced when the Order
+module is implemented. They will verify that concurrent order requests
+cannot oversell inventory.
 
 ### Failure tests
 
-Verify rollback behavior, idempotent retries, and relevant error paths.
+Verify transaction rollback behavior and relevant error paths.
+
+Idempotency and retry tests will be introduced alongside the
+corresponding Order functionality.
 
 ## 9. Architectural Principles
 
@@ -170,7 +187,7 @@ Verify rollback behavior, idempotent retries, and relevant error paths.
 The following decisions remain open:
 
 - Order-specific package and interface boundaries.
-- Inventory locking and concurrency-control strategy.
+- Order-level transaction coordination and inventory concurrency strategy.
 - REST endpoints and response formats for order operations.
 - Order status transitions.
 - Idempotency record model and retention.
