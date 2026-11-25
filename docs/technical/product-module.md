@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-The product module manages product creation and coordinates the creation of the corresponding initial inventory record.
+The product module manages product creation and retrieval by ID. It coordinates the creation of the corresponding initial inventory record.
 
 It contains the product domain model, validation rules, repository contract, PostgreSQL persistence implementation, and service responsible for coordinating the creation workflow.
 
@@ -47,6 +47,8 @@ This avoids floating-point precision problems when handling monetary values.
 
 The maximum supported price is `9,999,999,999` paise, corresponding to the database column's `NUMERIC(10,2)` precision.
 
+The database stores the corresponding decimal amount in rupees. For example, `12550` paise is stored as `125.50`.
+
 The PostgreSQL repository converts the integer representation into `pgtype.Numeric` with an exponent of `-2`. This preserves the intended decimal value without using floating-point conversion.
 
 ## 4. Product Construction and Validation
@@ -73,21 +75,21 @@ The description is trimmed but does not currently have a separate validation rul
 
 ## 5. Domain Errors
 
-The product package defines sentinel errors for validation failures:
+The product package defines sentinel errors for validation and lookup failures:
 
 - `ErrInvalidSKU`
 - `ErrInvalidName`
 - `ErrInvalidPrice`
+- `ErrNotFound`
 
-These errors allow callers and tests to identify specific validation failures using `errors.Is()`.
+These errors allow callers and tests to identify specific failures using `errors.Is()`.
 
 ## 6. Repository
 
-The `Repository` interface defines the persistence operation currently required by the product module:
+The `Repository` interface defines two persistence operations:
 
-`Create(ctx context.Context, product *Product) error`
-
-The interface is intentionally narrow and represents the product creation operation.
+- `Create(ctx context.Context, product *Product) error`
+- `GetByID(ctx context.Context, id int64) (*Product, error)`
 
 ### PostgreSQL Repository
 
@@ -107,11 +109,13 @@ The `Create()` method:
 
 Database errors are wrapped with product context while preserving the original error through `%w`.
 
+`GetByID()` queries the `products` table by ID and scans the row into a `Product`. The query treats a SQL `NULL` description as an empty string and converts the stored decimal price to integer paise by multiplying it by 100 and casting it to `bigint`.
+
+If scanning returns `sql.ErrNoRows`, the repository returns a nil product and wraps the domain sentinel `ErrNotFound` with the requested ID. Callers can detect a missing product with `errors.Is(err, product.ErrNotFound)`. Other query or scan errors are wrapped with the requested ID and preserved through `%w`.
+
 ## 7. Service and Transaction Coordination
 
-The `Service` coordinates the product creation workflow.
-
-It receives a `*database.TransactionManager` through `NewService()` and exposes `CreateProduct()` as the application operation for creating a product.
+`NewService()` receives a `*sql.DB` and a `*database.TransactionManager`. The service exposes `CreateProduct(ctx, sku, name, description, price)` for atomic product and inventory creation and `GetProductByID(ctx, id)` for retrieval.
 
 ### Creation workflow
 
@@ -139,13 +143,17 @@ In either case, the transaction manager receives an error and rolls back the tra
 
 The service returns `nil` and the transaction error when the transaction does not complete successfully.
 
+### Retrieval workflow
+
+`GetProductByID()` delegates to `Repository.GetByID()` through the PostgreSQL repository initialized with the database connection pool. The lookup runs outside the creation transaction. On failure, the service returns a nil product and wraps the error with the requested ID, preserving `ErrNotFound` or the underlying database error for `errors.Is()` checks.
+
 ### Responsibility boundaries
 
 The implementation keeps responsibilities separated:
 
 - **Domain model and constructor:** Represent product data and enforce product validation.
 - **Repository:** Execute product persistence operations.
-- **Service:** Coordinate the product creation workflow and its business transaction.
+- **Service:** Coordinate atomic product creation and delegate product retrieval to the repository.
 - **Transaction manager:** Manage transaction lifecycle, commit, and rollback.
 
 The service directly constructs the concrete PostgreSQL repositories using the transaction. No additional repository factory or abstraction is introduced for this workflow.
@@ -220,8 +228,44 @@ Since the transaction manager is nil, successful completion of this test also de
 | PostgreSQL error propagation | Original database error remains discoverable |
 | Invalid SKU                  | Validation fails before transaction handling |
 
-## 9. Current Scope
+## 9. HTTP API
 
-The documented implementation covers product construction, validation, PostgreSQL persistence, atomic creation of the initial inventory record, and service-level integration testing.
+`ProductHandler` exposes product creation and retrieval. It delegates business operations through the `ProductService` interface, which defines `CreateProduct()` and `GetProductByID()`.
 
-Other product operations, such as retrieval, update, deletion, and status changes, are not part of the repository contract shown here.
+### Endpoints
+
+| Method | Endpoint | Description | Success status |
+|---|---|---|---|
+| POST | `/products` | Creates a product and its initial inventory record | `201 Created` |
+| GET | `/products/{id}` | Retrieves a product by ID | `200 OK` |
+
+### Request handling
+
+The `createProductRequest` DTO accepts `sku`, `name`, `description`, and `price`. The price is an `int64` in paise. The handler limits the body to 1 MiB, rejects unknown JSON fields, and requires exactly one JSON value.
+
+For retrieval, the handler parses the `id` path parameter as a positive base-10 `int64` before calling the service.
+
+### Response handling
+
+Both endpoints return the `productResponse` DTO as JSON on success. Its fields are `id`, `sku`, `name`, `description`, `price` (in paise), `status`, `created_at`, and `updated_at`.
+
+### Error handling
+
+The handler returns an `errorResponse` DTO with an `error` field. It uses `errors.Is()` to map wrapped domain errors to HTTP status codes.
+
+| Condition | HTTP status |
+|---|---|
+| Invalid request JSON, unknown fields, or trailing content | `400 Bad Request` |
+| Invalid product ID | `400 Bad Request` |
+| Invalid SKU, name, or price | `400 Bad Request` |
+| Product not found (`ErrNotFound`) | `404 Not Found` |
+| Request body exceeds 1 MiB | `413 Request Entity Too Large` |
+| Unexpected internal error | `500 Internal Server Error` |
+
+Unexpected errors receive a generic response that keeps database details private.
+
+## 10. Current Scope
+
+The documented implementation covers product construction, validation, PostgreSQL persistence, atomic creation of the product and its initial inventory record, retrieval by ID, service-level integration testing, and HTTP endpoints for creation and retrieval.
+
+Product updates, deletion, and status changes are not currently supported by the Product service or repository.

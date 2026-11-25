@@ -15,6 +15,7 @@ import (
 	"github.com/MohanRaj-1/go-order-management/internal/customer"
 	"github.com/MohanRaj-1/go-order-management/internal/database"
 	httpapi "github.com/MohanRaj-1/go-order-management/internal/http"
+	"github.com/MohanRaj-1/go-order-management/internal/inventory"
 	"github.com/MohanRaj-1/go-order-management/internal/logger"
 	"github.com/MohanRaj-1/go-order-management/internal/product"
 	"github.com/joho/godotenv"
@@ -63,7 +64,11 @@ func run() (err error) {
 	productService := product.NewService(db, productTransactionManager)
 	productHandler := httpapi.NewProductHandler(productService)
 
-	mux := newRouter(customerHandler, productHandler)
+	inventoryRepository := inventory.NewPostgresRepository(db)
+	inventoryService := inventory.NewService(inventoryRepository)
+	inventoryHandler := httpapi.NewInventoryHandler(inventoryService)
+
+	mux := newRouter(customerHandler, productHandler, inventoryHandler)
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,

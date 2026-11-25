@@ -10,6 +10,7 @@ import (
 func newRouter(
 	customerHandler *httpapi.CustomerHandler,
 	productHandler *httpapi.ProductHandler,
+	inventoryHandler *httpapi.InventoryHandler,
 ) *http.ServeMux {
 	mux := http.NewServeMux()
 
@@ -22,6 +23,12 @@ func newRouter(
 	// Product routes
 	mux.HandleFunc("POST /products", productHandler.CreateProduct)
 	mux.HandleFunc("GET /products/{id}", productHandler.GetProductByID)
+
+	// Inventory routes
+	mux.HandleFunc("GET /products/{id}/inventory", inventoryHandler.GetInventory)
+	mux.HandleFunc("PATCH /products/{id}/inventory/physical-quantity", inventoryHandler.AdjustPhysicalQuantity)
+	mux.HandleFunc("POST /products/{id}/inventory/reservations", inventoryHandler.ReserveStock)
+	mux.HandleFunc("POST /products/{id}/inventory/reservations/release", inventoryHandler.ReleaseStock)
 
 	return mux
 }
